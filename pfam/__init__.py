@@ -95,13 +95,53 @@ class PfamEntry:
     def fetch (self):
 
         if self.type == 'Pfam-A':
-            return family(self.accession)
+            return family(self.id)
 
         elif self.type == 'Clan':
-            return clan(self.accession)
+            return clan(self.id)
 
         elif self.type == 'sequence':
-            return protein(self.accession)
+            return protein(self.id)
+
+class PfamClanMember:
+    
+    def __init__(self, element: ElementTree):
+
+        self.entry           : PfamEntry = PfamEntry('Pfam-A', element.get('id'), element.get('accession'), None)
+        self.num_occurrences : float     = element.get('num_occurrences')
+        self.percentage_hits : float     = element.get('percentage_hits')
+
+class PfamClan:
+
+    def __init__(self, release_version: str, release_date: datetime, entry: ElementTree):
+
+        # The release version of the pfam database
+        self.pfam_release_version : str      = release_version
+        self.pfam_release_date    : datetime = release_date
+
+        # Text of the family
+        self.description : str = None
+        self.comment     : str = None
+
+        # Members
+        self.families = []
+        
+        # Process child nodes
+        for el in entry:
+            
+            # Trasform the element curation_details in a object
+            if el.tag == 'members':
+                for member in el:
+                    self.families.append (PfamClanMember(member))
+            
+            # Set an attribute of this object using the text content of the element as value
+            else:
+                setattr(self, el.tag, el.text)
+
+        # Entry of this clan
+        self.entry: PfamEntry = PfamEntry(entry.get('entry_type'), entry.get('id'), entry.get('accession'), self.description)
+
+
 
 class PfarmGOTerm:
 
@@ -201,7 +241,7 @@ class PfamFamily:
                 self.hmm_details: PfamHmmDetails = PfamHmmDetails(el)
             
             elif el.tag == 'clan_membership':
-                self.clan : PfamEntry = PfamEntry('Clan', el.get('clan_id'), el.get('clan_acc'), None)
+                self.clan_entry : PfamEntry = PfamEntry('Clan', el.get('clan_id'), el.get('clan_acc'), None)
 
             # Parse GO terms in a list of dicts
             elif el.tag == 'go_terms':
@@ -224,6 +264,15 @@ class PfamFamily:
         # Entry of this family (for consistency)
         self.entry: PfamEntry = PfamEntry(entry.get('entry_type'), entry.get('id'), entry.get('accession'), self.description)
 
+    def proteins(self) -> [PfamEntry]:
+        return proteins(self.entry.accession)
+
+    def clan(self) -> PfamClan:
+        if self.clan is not None:
+            return clan(self.clan_entry.accession)
+        else:
+            return None
+
 class PfamMatch:
 
     def __init__(self, element: ElementTree):
@@ -238,7 +287,7 @@ class PfamMatch:
         for loc in element:
             self.locations.append (PfamLocation(loc))
 
-    def fetch_family (self) -> PfamFamily:
+    def family (self) -> PfamFamily:
 
         # Request the family to the server
         return self.entry.fetch()
@@ -320,51 +369,11 @@ class PfamProtein:
         # Entry of this protein
         self.entry: PfamEntry = PfamEntry(entry.get('entry_type'), entry.get('id'), entry.get('accession'), self.description)
 
-    def fetch_family (self) -> PfamFamily:
+    def family (self) -> PfamFamily:
 
         # Only if it has a match is possible
         if len(self.matches) > 0:
-            return self.matches[0].fetch_family()
-
-class PfamClanMember:
-    
-    def __init__(self, element: ElementTree):
-
-        self.entry           : PfamEntry = PfamEntry('Pfam-A', element.get('id'), element.get('accession'), None)
-        self.num_occurrences : float     = element.get('num_occurrences')
-        self.percentage_hits : float     = element.get('percentage_hits')
-
-class PfamClan:
-
-    def __init__(self, release_version: str, release_date: datetime, entry: ElementTree):
-
-        # The release version of the pfam database
-        self.pfam_release_version : str      = release_version
-        self.pfam_release_date    : datetime = release_date
-
-        # Text of the family
-        self.description : str = None
-        self.comment     : str = None
-
-        # Members
-        self.families = []
-        
-        # Process child nodes
-        for el in entry:
-            
-            # Trasform the element curation_details in a object
-            if el.tag == 'members':
-                for member in el:
-                    self.families.append (PfamClanMember(member))
-            
-            # Set an attribute of this object using the text content of the element as value
-            else:
-                setattr(self, el.tag, el.text)
-
-        # Entry of this clan
-        self.entry: PfamEntry = PfamEntry(entry.get('entry_type'), entry.get('id'), entry.get('accession'), self.description)
-
-
+            return self.matches[0].family()
 
 def family(id) -> PfamFamily:
 
@@ -443,7 +452,7 @@ def protein(id) -> PfamProtein:
     return PfamProtein(release_version, release_date, root[0])
 
 
-def proteins(family) -> [str]:
+def proteins(family) -> [PfamEntry]:
 
     # Options of the request
     params = {  'format': 'pfam',
@@ -458,13 +467,14 @@ def proteins(family) -> [str]:
     text = request('/family/' + family + '/alignment/full/format', params=params)
 
     # Output list
-    output: [str] = []
+    output: [PfamEntry] = []
 
     # Iterates over lines
     for line in text.splitlines():
 
         # Split the line to get the name
-        output.append(line.split('/')[0])
+        output.append(PfamEntry('sequence', line.split('/')[0], None, None))
+
 
     # Return the list of protein names
     return output
