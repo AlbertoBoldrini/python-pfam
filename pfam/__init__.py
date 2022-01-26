@@ -10,7 +10,7 @@ def request (path: str, params: dict = {}, headers: dict = None, timeout: float 
     params.setdefault('output', 'xml')
 
     # Compose the url
-    url = 'https://pfam.xfam.org' + path 
+    url = 'http://pfam.xfam.org' + path 
 
     # Make the request to pfam
     response = requests.get(url, params=params, headers=headers, timeout=timeout)
